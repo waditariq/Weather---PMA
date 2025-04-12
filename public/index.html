@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Open‑Meteo Weather App</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    input, button { padding: 8px; margin: 5px; }
+    #currentWeather, #forecast, #crudResults { margin-top: 20px; }
+    .forecast-day { border: 1px solid #ccc; padding: 10px; margin-right: 10px; display: inline-block; text-align: center; }
+    .query-item { border-bottom: 1px solid #ccc; padding: 5px; }
+  </style>
+  <!-- Include Axios from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+  <h1>Open‑Meteo Weather App</h1>
+  
+  <!-- Basic Weather Functionality -->
+  <input type="text" id="locationInput" placeholder="Enter a location (city, zip, etc.)">
+  <button onclick="getWeatherByInput()">Get Weather</button>
+  <button onclick="getCurrentLocationWeather()">Use My Location</button>
+  <div id="currentWeather"></div>
+  <div id="forecast"></div>
+
+  <hr>
+
+  <!-- CRUD: Temperature Query with Date Range -->
+  <h2>Temperature Query with Date Range</h2>
+  <form id="queryForm">
+    <input type="text" id="crudLocation" placeholder="Enter location" required>
+    <input type="date" id="startDate" required>
+    <input type="date" id="endDate" required>
+    <button type="submit">Get & Save Temperature Data</button>
+  </form>
+  <div id="crudResults"></div>
+  <button onclick="loadQueries()">Load Stored Queries</button>
+  <div id="storedQueries"></div>
+
+  <script>
+    // ----- Weather Functions (Client-Side) -----
+    function getWeatherIcon(code) {
+      if (code === 0) return "☀️";
+      else if ([1, 2].includes(code)) return "🌤️";
+      else if (code === 3) return "☁️";
+      else if (code >= 45 && code <= 48) return "🌫️";
+      else if (code >= 51 && code <= 57) return "🌦️";
+      else if (code >= 61 && code <= 67) return "🌧️";
+      else if (code >= 71 && code <= 77) return "❄️";
+      else if (code >= 80 && code <= 82) return "🌦️";
+      else if (code >= 95) return "⛈️";
+      return "🌈";
+    }
+
+    async function getWeatherForCoords(lat, lon, locationName = null) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&forecast_days=5&timezone=auto`;
+      try {
+        const response = await axios.get(url);
+        const data = response.data;
+        displayCurrentWeather(data, locationName);
+        displayForecast(data);
+      } catch (error) {
+        console.error("Full error in getWeatherForCoords:", error);
+        alert("Error fetching weather details: " + error.message);
+      }
+    }
+
+    function displayCurrentWeather(data, locationName) {
+      const current = data.current_weather;
+      let title = "Current Weather";
+      if (locationName) title += " in " + locationName;
+      document.getElementById("currentWeather").innerHTML = `
+        <h2>${title}</h2>
+        <p>Time: ${current.time}</p>
+        <p>Temperature: ${current.temperature}°C</p>
+        <p>Wind Speed: ${current.windspeed} km/h</p>
+      `;
+    }
+
+    function displayForecast(data) {
+      const daily = data.daily;
+      const forecastDiv = document.getElementById("forecast");
+      forecastDiv.innerHTML = "<h2>5‑Day Forecast</h2>";
+      for (let i = 0; i < daily.time.length; i++) {
+        const date = daily.time[i];
+        const maxTemp = daily.temperature_2m_max[i];
+        const minTemp = daily.temperature_2m_min[i];
+        const code = daily.weathercode[i];
+        const icon = getWeatherIcon(code);
+        const dayDiv = document.createElement("div");
+        dayDiv.className = "forecast-day";
+        dayDiv.innerHTML = `
+          <h3>${date}</h3>
+          <div style="font-size: 2rem;">${icon}</div>
+          <p>Max: ${maxTemp}°C</p>
+          <p>Min: ${minTemp}°C</p>
+        `;
+        forecastDiv.appendChild(dayDiv);
+      }
+    }
+
+    async function getWeatherByInput() {
+      const location = document.getElementById("locationInput").value;
+      if (!location) {
+        alert("Please enter a location.");
+        return;
+      }
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`;
+      try {
+        const res = await axios.get(nominatimUrl, { headers: { 'User-Agent': 'WeatherApp/1.0' } });
+        const results = res.data;
+        if (results.length === 0) {
+          alert("Location not found.");
+          return;
+        }
+        const lat = results[0].lat;
+        const lon = results[0].lon;
+        getWeatherForCoords(lat, lon, results[0].display_name);
+      } catch (error) {
+        console.error("Full error in getWeatherByInput:", error);
+        alert("Error fetching location data: " + error.message);
+      }
+    }
+
+    function getCurrentLocationWeather() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(async (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          let locationName = "";
+          try {
+            const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
+            const res = await axios.get(nominatimUrl, { headers: { 'User-Agent': 'WeatherApp/1.0' } });
+            const geoData = res.data;
+            locationName = geoData.address && geoData.address.city ? geoData.address.city : geoData.display_name;
+          } catch (error) {
+            console.error("Full error in reverse geocoding:", error);
+            locationName = "your location";
+          }
+          getWeatherForCoords(lat, lon, locationName);
+        }, () => {
+          alert("Unable to retrieve your location.");
+        });
+      } else {
+        alert("Geolocation is not supported by your browser.");
+      }
+    }
+
+    // ----- CRUD (Create, Read, Update, Delete) Functions -----
+
+    // Create (handled by form submission)
+    document.getElementById("queryForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const location = document.getElementById("crudLocation").value;
+      const startDate = document.getElementById("startDate").value;
+      const endDate = document.getElementById("endDate").value;
+      try {
+        const res = await axios.post("/weather", {
+          location: location,
+          start_date: startDate,
+          end_date: endDate
+        }, {
+          headers: { "Content-Type": "application/json" }
+        });
+        const data = res.data;
+        document.getElementById("crudResults").innerHTML = `<h3>Query Saved: ${data.location}</h3>
+          <p>From: ${data.start_date} To: ${data.end_date}</p>
+          <pre>${JSON.stringify(data.weather, null, 2)}</pre>`;
+        loadQueries(); // refresh stored queries
+      } catch (error) {
+        console.error("Full error in queryForm submit:", error);
+        document.getElementById("crudResults").innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+      }
+    });
+
+    // Read (Load stored queries)
+    async function loadQueries() {
+      try {
+        const res = await axios.get("/weather");
+        const queries = res.data;
+        const container = document.getElementById("storedQueries");
+        container.innerHTML = "<h3>Stored Queries</h3>";
+        if (queries.length === 0) {
+          container.innerHTML += "<p>No queries stored yet.</p>";
+        } else {
+          queries.forEach(query => {
+            const div = document.createElement("div");
+            div.className = "query-item";
+            div.innerHTML = `
+              <strong>${query.location}</strong> from ${query.start_date} to ${query.end_date} 
+              <br><em>Queried on ${new Date(query.created_at).toLocaleString()}</em>
+              <pre>${query.result}</pre>
+              <button onclick="deleteQuery('${query._id}')">Delete</button>
+              <button onclick="updateQuery('${query._id}')">Update</button>
+            `;
+            container.appendChild(div);
+          });
+        }
+      } catch (error) {
+        console.error("Full error in loadQueries:", error);
+        document.getElementById("storedQueries").innerHTML = `<p style="color:red;">Error loading queries: ${error.message}</p>`;
+      }
+    }
+
+    // Delete a stored query
+    async function deleteQuery(id) {
+      if (!confirm("Are you sure you want to delete this query?")) return;
+      try {
+        const res = await axios.delete(`/weather/${id}`);
+        const data = res.data;
+        alert(data.message);
+        loadQueries();
+      } catch (error) {
+        console.error("Full error in deleteQuery:", error);
+        alert("Error deleting record: " + error.message);
+      }
+    }
+
+    // Update a stored query
+    async function updateQuery(id) {
+      const newLocation = prompt("Enter new location:");
+      const newStartDate = prompt("Enter new start date (YYYY-MM-DD):");
+      const newEndDate = prompt("Enter new end date (YYYY-MM-DD):");
+      if (!newLocation || !newStartDate || !newEndDate) {
+        alert("All fields are required for update.");
+        return;
+      }
+      try {
+        const res = await axios.put(`/weather/${id}`, {
+          location: newLocation,
+          start_date: newStartDate,
+          end_date: newEndDate
+        }, {
+          headers: { "Content-Type": "application/json" }
+        });
+        const data = res.data;
+        alert("Record updated successfully!");
+        loadQueries();
+      } catch (error) {
+        console.error("Full error in updateQuery:", error);
+        alert("Error updating record: " + error.message);
+      }
+    }
+  </script>
+</body>
+</html>
