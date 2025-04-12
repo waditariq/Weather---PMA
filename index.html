@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Open‑Meteo Weather App</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    input, button { padding: 8px; margin: 5px; }
+    #currentWeather, #forecast { margin-top: 20px; }
+    .forecast-day { border: 1px solid #ccc; padding: 10px; margin-right: 10px; display: inline-block; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Open‑Meteo Weather App</h1>
+  <input type="text" id="locationInput" placeholder="Enter a location (city, zip, etc.)">
+  <button onclick="getWeatherByInput()">Get Weather</button>
+  <button onclick="getCurrentLocationWeather()">Use My Location</button>
+
+  <div id="currentWeather"></div>
+  <div id="forecast"></div>
+
+  <script>
+    // Mapping weather codes to simple icons (using emojis)
+    function getWeatherIcon(code) {
+      if (code === 0) return "☀️"; // clear sky
+      else if ([1, 2].includes(code)) return "🌤️"; // mainly clear, partly cloudy
+      else if (code === 3) return "☁️"; // overcast
+      else if (code >= 45 && code <= 48) return "🌫️"; // fog
+      else if (code >= 51 && code <= 57) return "🌦️"; // drizzle
+      else if (code >= 61 && code <= 67) return "🌧️"; // rain
+      else if (code >= 71 && code <= 77) return "❄️"; // snow
+      else if (code >= 80 && code <= 82) return "🌦️"; // rain showers
+      else if (code >= 95) return "⛈️"; // thunderstorms
+      return "🌈"; // fallback
+    }
+
+    // Fetch weather data from Open‑Meteo using the provided coordinates
+    async function getWeatherForCoords(coord1, coord2, locationName = null) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${coord1}&longitude=${coord2}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&forecast_days=5&timezone=auto`;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error("Error fetching weather data");
+        }
+        const data = await response.json();
+        displayCurrentWeather(data, locationName);
+        displayForecast(data);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    // Display current weather details; include the location name if provided
+    function displayCurrentWeather(data, locationName) {
+      const current = data.current_weather;
+      const weatherDiv = document.getElementById("currentWeather");
+      let title = "Current Weather";
+      if (locationName) {
+        title += " in " + locationName;
+      }
+      weatherDiv.innerHTML = `
+        <h2>${title}</h2>
+        <p>Time: ${current.time}</p>
+        <p>Temperature: ${current.temperature}°C</p>
+        <p>Wind Speed: ${current.windspeed} km/h</p>
+      `;
+    }
+
+    // Display a 5‑day forecast using daily data
+    function displayForecast(data) {
+      const daily = data.daily;
+      const forecastDiv = document.getElementById("forecast");
+      forecastDiv.innerHTML = `<h2>5‑Day Forecast</h2>`;
+      
+      for (let i = 0; i < daily.time.length; i++) {
+        const date = daily.time[i];
+        const maxTemp = daily.temperature_2m_max[i];
+        const minTemp = daily.temperature_2m_min[i];
+        const code = daily.weathercode[i];
+        const icon = getWeatherIcon(code);
+        
+        const dayDiv = document.createElement("div");
+        dayDiv.className = "forecast-day";
+        dayDiv.innerHTML = `
+          <h3>${date}</h3>
+          <div style="font-size: 2rem;">${icon}</div>
+          <p>Max: ${maxTemp}°C</p>
+          <p>Min: ${minTemp}°C</p>
+        `;
+        forecastDiv.appendChild(dayDiv);
+      }
+    }
+
+    // Get weather using a location entered by the user
+    async function getWeatherByInput() {
+      const location = document.getElementById("locationInput").value;
+      if (!location) {
+        alert("Please enter a location.");
+        return;
+      }
+      // Use the free Nominatim API for geocoding to get coordinates
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`;
+      try {
+        const response = await fetch(nominatimUrl, { headers: { 'User-Agent': 'WeatherApp/1.0' } });
+        const results = await response.json();
+        if (results.length === 0) {
+          alert("Location not found.");
+          return;
+        }
+        const coord1 = results[0].lat;
+        const coord2 = results[0].lon;
+        // Use the display name from the geocoding result
+        getWeatherForCoords(coord1, coord2, results[0].display_name);
+      } catch (error) {
+        alert("Error fetching location data.");
+      }
+    }
+
+    // Get weather for the user's current location and display the place name
+    function getCurrentLocationWeather() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(async (position) => {
+          const coord1 = position.coords.latitude;
+          const coord2 = position.coords.longitude;
+          let locationName = "";
+          // Reverse geocoding to fetch the place name
+          try {
+            const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coord1}&lon=${coord2}`;
+            const response = await fetch(nominatimUrl, { headers: { 'User-Agent': 'WeatherApp/1.0' } });
+            const geoData = await response.json();
+            if (geoData.address && geoData.address.city) {
+              locationName = geoData.address.city;
+            } else {
+              locationName = geoData.display_name;
+            }
+          } catch (error) {
+            console.error("Reverse geocoding error:", error);
+            locationName = "your location";
+          }
+          getWeatherForCoords(coord1, coord2, locationName);
+        }, () => {
+          alert("Unable to retrieve your location.");
+        });
+      } else {
+        alert("Geolocation is not supported by your browser.");
+      }
+    }
+  </script>
+</body>
+</html>
